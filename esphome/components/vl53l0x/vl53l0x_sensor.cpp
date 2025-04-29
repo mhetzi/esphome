@@ -21,7 +21,7 @@ bool VL53L0XSensor::enable_pin_setup_complete = false;   // NOLINT(cppcoreguidel
 VL53L0XSensor::VL53L0XSensor() { VL53L0XSensor::vl53_sensors.push_back(this); }
 
 void VL53L0XSensor::dump_config() {
-  LOG_SENSOR("", "VL53L0X", this);
+  LOG_SENSOR("", "VL53L0X Debugging", this);
   LOG_UPDATE_INTERVAL(this);
   LOG_I2C_DEVICE(this);
   if (this->enable_pin_ != nullptr) {
@@ -284,6 +284,7 @@ void VL53L0XSensor::update() {
 
 void VL53L0XSensor::loop() {
   if (this->initiated_read_) {
+    ESP_LOGD(TAG, "loop initiated_read_");
     if (reg(0x00).get() & 0x01) {
       // waiting
     } else {
@@ -294,6 +295,7 @@ void VL53L0XSensor::loop() {
     }
   }
   if (this->waiting_for_interrupt_) {
+    ESP_LOGD(TAG, "loop waiting_for_interrupt_");
     if (reg(0x13).get() & 0x07) {
       uint16_t range_mm = 0;
       this->read_byte_16(0x14 + 10, &range_mm);
