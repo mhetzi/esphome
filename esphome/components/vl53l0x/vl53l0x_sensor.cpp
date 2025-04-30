@@ -275,7 +275,7 @@ void VL53L0XSensor::update() {
       delay(100);
       reg(0xbf) = 0x01;
       while(reg(0xc0) == 0x00){
-        ESP_LOGD(TAG, "Device not yet ready")
+        ESP_LOGD(TAG, "Device not yet ready");
         delay(500);
       }
       this->setup();
