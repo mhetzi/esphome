@@ -274,10 +274,13 @@ void VL53L0XSensor::update() {
       reg(0xbf) = 0x00;
       delay(100);
       reg(0xbf) = 0x01;
-      while(reg(0xc0) == 0x00){
+      uint8_t model_id = 0;
+      do{
+        read_byte(0xc0, &model_id);
         ESP_LOGD(TAG, "Device not yet ready");
         delay(500);
-      }
+      }while (model_id == 0);
+      
       this->setup();
     }
     return;
