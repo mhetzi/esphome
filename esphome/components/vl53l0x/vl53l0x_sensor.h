@@ -68,6 +68,7 @@ class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c
   uint16_t timeout_us_{};
 
   uint8_t update_skipps = 0;
+  uint8_t reset_count = 0;
 
   static std::list<VL53L0XSensor *> vl53_sensors;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
   static bool enable_pin_setup_complete;           // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)

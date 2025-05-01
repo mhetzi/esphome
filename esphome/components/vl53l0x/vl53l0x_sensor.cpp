@@ -269,19 +269,33 @@ void VL53L0XSensor::update() {
     this->update_skipps++;
     if (this->update_skipps > 10) {
       this->update_skipps = 0;
+      this->reset_count++;
+
+      if (reset_count > 10){
+        this->setup();
+        this->reset_count = 0;
+      }
+
       this->publish_state(NAN);
       this->status_momentary_warning("update", 5000);
+      ESP_LOGD(TAG, "Beginn Reset...");
       reg(0xbf) = 0x00;
-      delay(100);
+      do{
+        read_byte(0xc0, &model_id);
+        ESP_LOGD(TAG, "Device not yet ready");
+        delay(500);
+      } while (model_id == 0);
+      ESP_LOGD(TAG, "Release Reset...");
       reg(0xbf) = 0x01;
       uint8_t model_id = 0;
       do{
         read_byte(0xc0, &model_id);
         ESP_LOGD(TAG, "Device not yet ready");
         delay(500);
-      }while (model_id == 0);
+      } while (model_id == 0);
+
+      ESP_LOGD(TAG, "Device ready. Successfully got model_id %d", model_id);
       
-      this->setup();
     }
     return;
   }
