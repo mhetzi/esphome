@@ -280,6 +280,8 @@ void VL53L0XSensor::update() {
       this->status_momentary_warning("update", 5000);
       ESP_LOGD(TAG, "Beginn Reset...");
       reg(0xbf) = 0x00;
+      uint8_t model_id = 0;
+
       do{
         read_byte(0xc0, &model_id);
         ESP_LOGD(TAG, "Device not yet ready");
@@ -287,7 +289,8 @@ void VL53L0XSensor::update() {
       } while (model_id == 0);
       ESP_LOGD(TAG, "Release Reset...");
       reg(0xbf) = 0x01;
-      uint8_t model_id = 0;
+      
+      model_id = 0;
       do{
         read_byte(0xc0, &model_id);
         ESP_LOGD(TAG, "Device not yet ready");
