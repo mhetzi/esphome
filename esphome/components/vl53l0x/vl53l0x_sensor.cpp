@@ -297,21 +297,25 @@ void VL53L0XSensor::update() {
   if (this->initiated_read_ || this->waiting_for_interrupt_) {
     ESP_LOGW(TAG, "%s - update called before prior reading complete - initiated:%d waiting_for_interrupt:%d",
              this->name_.c_str(), this->initiated_read_, this->waiting_for_interrupt_);
+    /* Reset Interrupt Mask, to try to recover Device */
     reg(0x0B) = 0x01;
-    delay(100);
     reg(0x0B) = 0x00;
+
     this->waiting_for_interrupt_ = false;
     this->initiated_read_ = false;
+
     this->update_skipps++;
     if (this->update_skipps > 10) {
       this->update_skipps = 0;
       this->reset_count++;
 
       if (reset_count > 10){
+        /* Soft Reboot did not fix it, try to setup the device. */
         this->setup();
         this->reset_count = 0;
       }
 
+      /* Recovery via Interrupt Mask failed, Try soft rebooting the Device */
       if (xTaskCreate(taskReset, "VL53_reset", 1024, this, 1, &this->resetTask) != pdPASS){
         ESP_LOGW(TAG, "Device Reset failed! Cant create Task!");
         this->mark_failed();
@@ -364,6 +368,8 @@ void VL53L0XSensor::loop() {
       float range_m = range_mm / 1e3f;
       ESP_LOGD(TAG, "'%s' - Got distance %.3f m", this->name_.c_str(), range_m);
       this->publish_state(range_m);
+      this->reset_count = 0;
+      this->update_skipps = 0;
     }
   }
 }
