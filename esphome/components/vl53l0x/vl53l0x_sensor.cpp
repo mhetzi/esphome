@@ -258,7 +258,7 @@ void VL53L0XSensor::setup() {
   ESP_LOGD(TAG, "'%s' - setup END", this->name_.c_str());
 }
 
-void VL53L0XSensor::resetDevice() {
+void VL53L0XSensor::_resetDevice() {
   this->publish_state(NAN);
   this->status_momentary_warning("update", 5000);
   ESP_LOGD(TAG, "Beginn Reset...");
@@ -285,8 +285,9 @@ void VL53L0XSensor::resetDevice() {
   vTaskDelete(0);
 }
 
-void taskReset(void* this){
-  this->resetDevice(); 
+void taskReset(void* cls){
+  VL53L0XSensor* sens = (VL53L0XSensor*) cls;
+  sens->_resetDevice(); 
 }
 
 void VL53L0XSensor::update() {
@@ -313,7 +314,7 @@ void VL53L0XSensor::update() {
       if (xTaskCreate(taskReset, "VL53_reset", 1024, this, 1, &this->resetTask) != pdPASS){
         ESP_LOGW(TAG, "Device Reset failed! Cant create Task!");
         this->mark_failed();
-      }
+      } 
       
     }
     return;

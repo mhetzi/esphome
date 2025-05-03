@@ -41,6 +41,8 @@ class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c
   void set_timeout_us(uint32_t timeout_us) { this->timeout_us_ = timeout_us; }
   void set_enable_pin(GPIOPin *enable) { this->enable_pin_ = enable; }
 
+
+  void _resetDevice();
  protected:
   uint32_t get_measurement_timing_budget_();
   bool set_measurement_timing_budget_(uint32_t budget_us);
@@ -56,8 +58,6 @@ class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c
   uint16_t encode_timeout_(uint16_t timeout_mclks);
 
   bool perform_single_ref_calibration_(uint8_t vhv_init_byte);
-
-  void resetDevice();
 
   float signal_rate_limit_;
   bool long_range_;
