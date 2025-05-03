@@ -258,7 +258,41 @@ void VL53L0XSensor::setup() {
   ESP_LOGD(TAG, "'%s' - setup END", this->name_.c_str());
 }
 
+void VL53L0XSensor::resetDevice() {
+  this->publish_state(NAN);
+  this->status_momentary_warning("update", 5000);
+  ESP_LOGD(TAG, "Beginn Reset...");
+  reg(0xbf) = 0x00;
+  uint8_t model_id = 0;
+
+  do{
+    read_byte(0xc0, &model_id);
+    ESP_LOGD(TAG, "Device not yet ready");
+    delay(100);
+  } while (model_id == 0);
+  ESP_LOGD(TAG, "Release Reset...");
+  reg(0xbf) = 0x01;
+  
+  model_id = 0;
+  do{
+    read_byte(0xc0, &model_id);
+    ESP_LOGD(TAG, "Device not yet ready");
+    delay(500);
+  } while (model_id == 0);
+
+  ESP_LOGD(TAG, "Device ready. Successfully got model_id %d", model_id);
+  this->resetTask = NULL;
+  vTaskDelete(0);
+}
+
+void taskReset(void* this){
+  this->resetDevice(); 
+}
+
 void VL53L0XSensor::update() {
+  if (this->resetTask != nullptr){
+    return;
+  }
   if (this->initiated_read_ || this->waiting_for_interrupt_) {
     ESP_LOGW(TAG, "%s - update called before prior reading complete - initiated:%d waiting_for_interrupt:%d",
              this->name_.c_str(), this->initiated_read_, this->waiting_for_interrupt_);
@@ -276,28 +310,10 @@ void VL53L0XSensor::update() {
         this->reset_count = 0;
       }
 
-      this->publish_state(NAN);
-      this->status_momentary_warning("update", 5000);
-      ESP_LOGD(TAG, "Beginn Reset...");
-      reg(0xbf) = 0x00;
-      uint8_t model_id = 0;
-
-      do{
-        read_byte(0xc0, &model_id);
-        ESP_LOGD(TAG, "Device not yet ready");
-        delay(500);
-      } while (model_id == 0);
-      ESP_LOGD(TAG, "Release Reset...");
-      reg(0xbf) = 0x01;
-      
-      model_id = 0;
-      do{
-        read_byte(0xc0, &model_id);
-        ESP_LOGD(TAG, "Device not yet ready");
-        delay(500);
-      } while (model_id == 0);
-
-      ESP_LOGD(TAG, "Device ready. Successfully got model_id %d", model_id);
+      if (xTaskCreate(taskReset, "VL53_reset", 1024, this, 1, &this->resetTask) != pdPASS){
+        ESP_LOGW(TAG, "Device Reset failed! Cant create Task!");
+        this->mark_failed();
+      }
       
     }
     return;

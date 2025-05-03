@@ -6,6 +6,7 @@
 #include "esphome/core/hal.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/i2c/i2c.h"
+#include "freertos/task.h"
 
 namespace esphome {
 namespace vl53l0x {
@@ -56,6 +57,8 @@ class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c
 
   bool perform_single_ref_calibration_(uint8_t vhv_init_byte);
 
+  void resetDevice();
+
   float signal_rate_limit_;
   bool long_range_;
   GPIOPin *enable_pin_{nullptr};
@@ -69,6 +72,7 @@ class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c
 
   uint8_t update_skipps = 0;
   uint8_t reset_count = 0;
+  TaskHandle_t resetTask = 0;
 
   static std::list<VL53L0XSensor *> vl53_sensors;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
   static bool enable_pin_setup_complete;           // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
