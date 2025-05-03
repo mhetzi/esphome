@@ -298,6 +298,7 @@ void VL53L0XSensor::update() {
     ESP_LOGW(TAG, "%s - update called before prior reading complete - initiated:%d waiting_for_interrupt:%d",
              this->name_.c_str(), this->initiated_read_, this->waiting_for_interrupt_);
     reg(0x0B) = 0x01;
+    delay(100);
     reg(0x0B) = 0x00;
     this->waiting_for_interrupt_ = false;
     this->initiated_read_ = false;
@@ -338,7 +339,6 @@ void VL53L0XSensor::update() {
 
 void VL53L0XSensor::loop() {
   if (this->initiated_read_) {
-    ESP_LOGD(TAG, "loop initiated_read_");
     if (reg(0x00).get() & 0x01) {
       // waiting
     } else {
@@ -349,7 +349,6 @@ void VL53L0XSensor::loop() {
     }
   }
   if (this->waiting_for_interrupt_) {
-    ESP_LOGD(TAG, "loop waiting_for_interrupt_");
     if (reg(0x13).get() & 0x07) {
       uint16_t range_mm = 0;
       this->read_byte_16(0x14 + 10, &range_mm);
