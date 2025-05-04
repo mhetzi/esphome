@@ -259,8 +259,7 @@ void VL53L0XSensor::setup() {
 }
 
 void VL53L0XSensor::_resetDevice() {
-  this->publish_state(NAN);
-  this->status_momentary_warning("update", 5000);
+  delay(250);
   ESP_LOGD(TAG, "Beginn Reset...");
   reg(0xbf) = 0x00;
   uint8_t model_id = 0;
@@ -269,6 +268,7 @@ void VL53L0XSensor::_resetDevice() {
     read_byte(0xc0, &model_id);
     ESP_LOGD(TAG, "Device not yet ready");
     delay(100);
+    yield();
   } while (model_id == 0);
   ESP_LOGD(TAG, "Release Reset...");
   reg(0xbf) = 0x01;
@@ -306,6 +306,9 @@ void VL53L0XSensor::update() {
 
     this->update_skipps++;
     if (this->update_skipps > 10) {
+      this->publish_state(NAN);
+      this->status_momentary_warning("update", 5000);
+
       this->update_skipps = 0;
       this->reset_count++;
 
@@ -313,9 +316,11 @@ void VL53L0XSensor::update() {
         /* Soft Reboot did not fix it, try to setup the device. */
         this->setup();
         this->reset_count = 0;
+        return;
       }
 
       /* Recovery via Interrupt Mask failed, Try soft rebooting the Device */
+      ESP_LOGD(TAG, "Softreboot Sensor");
       if (xTaskCreate(taskReset, "VL53_reset", 1024, this, 1, &this->resetTask) != pdPASS){
         ESP_LOGW(TAG, "Device Reset failed! Cant create Task!");
         this->mark_failed();
@@ -342,6 +347,10 @@ void VL53L0XSensor::update() {
 }
 
 void VL53L0XSensor::loop() {
+  if (this->resetTask != 0) {
+    return;
+  }
+
   if (this->initiated_read_) {
     if (reg(0x00).get() & 0x01) {
       // waiting
