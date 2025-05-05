@@ -258,129 +258,141 @@ void VL53L0XSensor::setup() {
   ESP_LOGD(TAG, "'%s' - setup END", this->name_.c_str());
 }
 
-void VL53L0XSensor::_resetDevice() {
-  delay(250);
-  ESP_LOGD(TAG, "Beginn Reset...");
-  reg(0xbf) = 0x00;
-  uint8_t model_id = 0;
-
-  do{
-    read_byte(0xc0, &model_id);
-    ESP_LOGD(TAG, "Device not yet ready");
-    delay(100);
-    yield();
-  } while (model_id == 0);
-  ESP_LOGD(TAG, "Release Reset...");
-  reg(0xbf) = 0x01;
-  
-  model_id = 0;
-  do{
-    read_byte(0xc0, &model_id);
-    ESP_LOGD(TAG, "Device not yet ready");
-    delay(500);
-  } while (model_id == 0);
-
-  ESP_LOGD(TAG, "Device ready. Successfully got model_id %d", model_id);
-  this->resetTask = NULL;
-  vTaskDelete(0);
-}
-
-void taskReset(void* cls){
-  VL53L0XSensor* sens = (VL53L0XSensor*) cls;
-  sens->_resetDevice(); 
-}
-
 void VL53L0XSensor::update() {
-  if (this->resetTask != nullptr){
+  if (this->currState >= LoopStateEnum::SOFT_RESET_BEGINN) {
+    ESP_LOGD(TAG, "update sensor not ready (%d)", this->currState);
     return;
   }
-  if (this->initiated_read_ || this->waiting_for_interrupt_) {
-    ESP_LOGW(TAG, "%s - update called before prior reading complete - initiated:%d waiting_for_interrupt:%d",
-             this->name_.c_str(), this->initiated_read_, this->waiting_for_interrupt_);
-    /* Reset Interrupt Mask, to try to recover Device */
-    reg(0x0B) = 0x01;
-    reg(0x0B) = 0x00;
 
-    this->waiting_for_interrupt_ = false;
-    this->initiated_read_ = false;
+  switch (this->currState) {
+    case LoopStateEnum::IDLE:{
+      // initiate single shot measurement
+      reg(0x80) = 0x01;
+      reg(0xFF) = 0x01;
 
-    this->update_skipps++;
-    if (this->update_skipps > 10) {
-      this->publish_state(NAN);
-      this->status_momentary_warning("update", 5000);
+      reg(0x00) = 0x00;
+      reg(0x91) = this->stop_variable_;
+      reg(0x00) = 0x01;
+      reg(0xFF) = 0x00;
+      reg(0x80) = 0x00;
 
-      this->update_skipps = 0;
-      this->reset_count++;
+      reg(0x00) = 0x01;
 
-      if (reset_count > 10){
-        /* Soft Reboot did not fix it, try to setup the device. */
-        this->setup();
-        this->reset_count = 0;
-        return;
-      }
-
-      /* Recovery via Interrupt Mask failed, Try soft rebooting the Device */
-      ESP_LOGD(TAG, "Softreboot Sensor");
-      if (xTaskCreate(taskReset, "VL53_reset", 1024, this, 1, &this->resetTask) != pdPASS){
-        ESP_LOGW(TAG, "Device Reset failed! Cant create Task!");
-        this->mark_failed();
-      } 
-      
+      this->currState = LoopStateEnum::READ;
+      break;
     }
-    return;
+
+    case LoopStateEnum::WAIT_INTERRUPT:
+    case LoopStateEnum::READ:{
+      ESP_LOGW(TAG, "%s - update called before prior reading complete - state: %d",
+        this->name_.c_str(), this->currState);
+      
+      /* Reset Interrupt Mask, to try to recover Device */
+      reg(0x0B) = 0x01;
+      reg(0x0B) = 0x00;
+
+      this->currState = IDLE;
+      this->update_skipps++;
+      if (this->update_skipps > 10) {
+        this->publish_state(NAN);
+        this->status_momentary_warning("update", 5000);
+  
+        this->update_skipps = 0;
+        this->reset_count++;
+        this->currState = LoopStateEnum::SOFT_RESET_BEGINN;
+  
+        if (reset_count > 10){
+          /* Soft Reboot did not fix it, try to setup the device. */
+          this->currState = LoopStateEnum::RESETUP;
+          return;
+        }
+      }
+      break;
+    }
+
+    default:
+      break;
   }
-
-  // initiate single shot measurement
-  reg(0x80) = 0x01;
-  reg(0xFF) = 0x01;
-
-  reg(0x00) = 0x00;
-  reg(0x91) = this->stop_variable_;
-  reg(0x00) = 0x01;
-  reg(0xFF) = 0x00;
-  reg(0x80) = 0x00;
-
-  reg(0x00) = 0x01;
-  this->waiting_for_interrupt_ = false;
-  this->initiated_read_ = true;
-  // wait for timeout
 }
 
 void VL53L0XSensor::loop() {
-  if (this->resetTask != 0) {
-    return;
-  }
 
-  if (this->initiated_read_) {
-    if (reg(0x00).get() & 0x01) {
-      // waiting
-    } else {
-      // done
-      // wait until reg(0x13) & 0x07 is set
-      this->initiated_read_ = false;
-      this->waiting_for_interrupt_ = true;
-    }
-  }
-  if (this->waiting_for_interrupt_) {
-    if (reg(0x13).get() & 0x07) {
-      uint16_t range_mm = 0;
-      this->read_byte_16(0x14 + 10, &range_mm);
-      reg(0x0B) = 0x01;
-      this->waiting_for_interrupt_ = false;
-
-      if (range_mm >= 8190) {
-        ESP_LOGD(TAG, "'%s' - Distance is out of range, please move the target closer", this->name_.c_str());
-        this->publish_state(NAN);
-        return;
+  switch (this->currState) {
+    case LoopStateEnum::IDLE:
+      return;
+    
+    case LoopStateEnum::READ:{
+      if ( !(reg(0x00).get() & 0x01) ) {
+        this->currState = LoopStateEnum::WAIT_INTERRUPT;
       }
-
-      float range_m = range_mm / 1e3f;
-      ESP_LOGD(TAG, "'%s' - Got distance %.3f m", this->name_.c_str(), range_m);
-      this->publish_state(range_m);
-      this->reset_count = 0;
-      this->update_skipps = 0;
+      break;
     }
+    case LoopStateEnum::WAIT_INTERRUPT: {
+      if (reg(0x13).get() & 0x07) {
+        uint16_t range_mm = 0;
+        this->read_byte_16(0x14 + 10, &range_mm);
+        reg(0x0B) = 0x01;
+
+        this->currState = IDLE;
+        this->reset_count = 0;
+        this->update_skipps = 0;
+  
+        if (range_mm >= 8190) {
+          ESP_LOGD(TAG, "'%s' - Distance is out of range, please move the target closer", this->name_.c_str());
+          this->publish_state(NAN);
+          return;
+        }
+  
+        float range_m = range_mm / 1e3f;
+        ESP_LOGD(TAG, "'%s' - Got distance %.3f m", this->name_.c_str(), range_m);
+        this->publish_state(range_m);
+      }
+      break;
+    }
+
+    case LoopStateEnum::SOFT_RESET_BEGINN: {
+      ESP_LOGD(TAG, "Beginn Reset...");
+      reg(0xbf) = 0x00;
+      this->currState = LoopStateEnum::SOFT_RESET_WAIT1;
+      break;
+    }
+    case LoopStateEnum::SOFT_RESET_WAIT1:{
+      uint8_t model_id = 0;
+      read_byte(0xc0, &model_id);
+      if (model_id == 0) {
+        ESP_LOGD(TAG, "Device not yet ready");
+      } else {
+        this->currState = LoopStateEnum::SOFT_RESET_RELEASE;
+      }
+      break;
+    }
+    case LoopStateEnum::SOFT_RESET_RELEASE: {
+      ESP_LOGD(TAG, "Release Reset...");
+      reg(0xbf) = 0x01;
+      this->currState = LoopStateEnum::SOFT_RESET_WAIT2;
+      break;
+    }
+    case LoopStateEnum::SOFT_RESET_WAIT2:{
+      uint8_t model_id = 0;
+      read_byte(0xc0, &model_id);
+      if (model_id == 0) {
+        ESP_LOGD(TAG, "Device not yet ready");
+      } else {
+        this->currState = LoopStateEnum::IDLE;
+        ESP_LOGD(TAG, "Device ready. Successfully got model_id %d", model_id);
+      }
+      break;
+    }
+    case LoopStateEnum::RESETUP: {
+      this->setup();
+      this->reset_count = 0;
+      this->currState = LoopStateEnum::IDLE;
+    }
+    default:
+      ESP_LOGE(TAG, "LoopStateEnum has unhandled number: %d", this->currState);
+      break;
   }
+
 }
 
 uint32_t VL53L0XSensor::get_measurement_timing_budget_() {

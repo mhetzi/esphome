@@ -22,6 +22,18 @@ struct SequenceStepTimeouts {
   uint32_t msrc_dss_tcc_us, pre_range_us, final_range_us;
 };
 
+enum LoopStateEnum {
+  IDLE = 0,
+  READ,
+  WAIT_INTERRUPT,
+  SOFT_RESET_BEGINN,
+  SOFT_RESET_WAIT1,
+  SOFT_RESET_RELEASE,
+  SOFT_RESET_WAIT2,
+  RESETUP,
+  ERR
+};
+
 enum VcselPeriodType { VCSEL_PERIOD_PRE_RANGE, VCSEL_PERIOD_FINAL_RANGE };
 
 class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c::I2CDevice {
@@ -41,8 +53,6 @@ class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c
   void set_timeout_us(uint32_t timeout_us) { this->timeout_us_ = timeout_us; }
   void set_enable_pin(GPIOPin *enable) { this->enable_pin_ = enable; }
 
-
-  void _resetDevice();
  protected:
   uint32_t get_measurement_timing_budget_();
   bool set_measurement_timing_budget_(uint32_t budget_us);
@@ -63,8 +73,6 @@ class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c
   bool long_range_;
   GPIOPin *enable_pin_{nullptr};
   uint32_t measurement_timing_budget_us_;
-  bool initiated_read_{false};
-  bool waiting_for_interrupt_{false};
   uint8_t stop_variable_;
 
   uint16_t timeout_start_us_;
@@ -72,7 +80,7 @@ class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c
 
   uint8_t update_skipps = 0;
   uint8_t reset_count = 0;
-  TaskHandle_t resetTask = 0;
+  LoopStateEnum currState = LoopStateEnum::IDLE;
 
   static std::list<VL53L0XSensor *> vl53_sensors;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
   static bool enable_pin_setup_complete;           // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
