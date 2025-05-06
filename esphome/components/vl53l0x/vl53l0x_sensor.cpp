@@ -21,13 +21,50 @@ bool VL53L0XSensor::enable_pin_setup_complete = false;   // NOLINT(cppcoreguidel
 VL53L0XSensor::VL53L0XSensor() { VL53L0XSensor::vl53_sensors.push_back(this); }
 
 void VL53L0XSensor::dump_config() {
-  LOG_SENSOR("", "VL53L0X", this);
+  LOG_SENSOR("", "VL53L0X RangeByte", this);
   LOG_UPDATE_INTERVAL(this);
   LOG_I2C_DEVICE(this);
   if (this->enable_pin_ != nullptr) {
     LOG_PIN("  Enable Pin: ", this->enable_pin_);
   }
   ESP_LOGCONFIG(TAG, "  Timeout: %u%s", this->timeout_us_, this->timeout_us_ > 0 ? "us" : " (no timeout)");
+}
+
+const char* getVL53L0X_DeviceErrorAsString(uint8_t err) {
+  switch (err) {
+    case 0:
+      return "No Error";
+    case 1:
+      return "VCSELCONTINUITYTESTFAILURE";
+    case 2:
+      return "VCSELWATCHDOGTESTFAILURE";
+    case 3:
+      return "NOVHVVALUEFOUND";
+    case 4:
+      return "MSRCNOTARGET";
+    case 5:
+      return "SNRCHECK";
+    case 6:
+      return "RANGEPHASECHECK";
+    case 7:
+      return "SIGMATHRESHOLDCHECK";
+    case 8:
+      return "TCC";
+    case 9:
+      return "PHASECONSISTENCY";
+    case 10:
+      return "MINCLIP";
+    case 11:
+      return "RANGECOMPLETE";
+    case 12:
+      return "ALGOUNDERFLOW";
+    case 13:
+      return "ALGOOVERFLOW";
+    case 14:
+      return "RANGEIGNORETHRESHOLD";
+    default:
+      return "unknown";
+  }
 }
 
 void VL53L0XSensor::setup() {
@@ -287,8 +324,11 @@ void VL53L0XSensor::update() {
       uint8_t RangeStatus = reg(0x14).get();
       uint8_t errStatus = ((RangeStatus & 0x78) >> 3);
 
-      ESP_LOGW(TAG, "%s - update called before prior reading complete - state: %d ! err_state: %d",
-        this->name_.c_str(), this->currState, errStatus);
+      ESP_LOGW(TAG, "%s - update called before prior reading complete - state: %d | err_state: %d (%s)",
+        this->name_.c_str(), this->currState, errStatus, getVL53L0X_DeviceErrorAsString(errStatus));
+      
+      if (errStatus == 11 || errStatus == 14)
+        return;
 
       /* Reset Interrupt Mask, to try to recover Device */
       reg(0x0B) = 0x01;
@@ -337,7 +377,9 @@ void VL53L0XSensor::loop() {
         this->publish_state(NAN);
         this->currState = IDLE;
       }
-      if ( Byte & 0x07) {
+      uint8_t RangeByte = reg(0x14).get();
+      uint8_t errStatus = ((RangeByte & 0x78) >> 3);
+      if ( Byte & 0x07 || RangeByte & 0x01 || errStatus == 11) {
         uint16_t range_mm = 0;
         this->read_byte_16(0x14 + 10, &range_mm);
         reg(0x0B) = 0x01;
@@ -357,7 +399,7 @@ void VL53L0XSensor::loop() {
         this->publish_state(range_m);
         return;
       }
-      ESP_LOGD(TAG, "'%s' - Got interrup state %d", this->name_.c_str(), Byte);
+      ESP_LOGD(TAG, "'%s' - Got interrupt state: %d - Got range state: %d - ErrState: %s", this->name_.c_str(), Byte, RangeByte, getVL53L0X_DeviceErrorAsString(errStatus));
       break;
     }
 
