@@ -21,7 +21,7 @@ bool VL53L0XSensor::enable_pin_setup_complete = false;   // NOLINT(cppcoreguidel
 VL53L0XSensor::VL53L0XSensor() { VL53L0XSensor::vl53_sensors.push_back(this); }
 
 void VL53L0XSensor::dump_config() {
-  LOG_SENSOR("", "VL53L0X With clearint", this);
+  LOG_SENSOR("", "VL53L0X", this);
   LOG_UPDATE_INTERVAL(this);
   LOG_I2C_DEVICE(this);
   if (this->enable_pin_ != nullptr) {
@@ -284,9 +284,12 @@ void VL53L0XSensor::update() {
 
     case LoopStateEnum::WAIT_INTERRUPT:
     case LoopStateEnum::READ:{
-      ESP_LOGW(TAG, "%s - update called before prior reading complete - state: %d",
-        this->name_.c_str(), this->currState);
-      
+      uint8_t RangeStatus = reg(0x14).get();
+      uint8_t errStatus = ((RangeStatus & 0x78) >> 3);
+
+      ESP_LOGW(TAG, "%s - update called before prior reading complete - state: %d ! err_state: %d",
+        this->name_.c_str(), this->currState, errStatus);
+
       /* Reset Interrupt Mask, to try to recover Device */
       reg(0x0B) = 0x01;
       reg(0x0B) = 0x00;
@@ -328,7 +331,13 @@ void VL53L0XSensor::loop() {
       break;
     }
     case LoopStateEnum::WAIT_INTERRUPT: {
-      if (reg(0x13).get() & 0x07) {
+      uint8_t Byte = reg(0x13).get();
+      if (Byte & 0x18){
+        ESP_LOGD(TAG, "'%s' - Range error", this->name_.c_str());
+        this->publish_state(NAN);
+        this->currState = IDLE;
+      }
+      if ( Byte & 0x07) {
         uint16_t range_mm = 0;
         this->read_byte_16(0x14 + 10, &range_mm);
         reg(0x0B) = 0x01;
@@ -346,7 +355,9 @@ void VL53L0XSensor::loop() {
         float range_m = range_mm / 1e3f;
         ESP_LOGD(TAG, "'%s' - Got distance %.3f m", this->name_.c_str(), range_m);
         this->publish_state(range_m);
+        return;
       }
+      ESP_LOGD(TAG, "'%s' - Got interrup state %d", this->name_.c_str(), Byte);
       break;
     }
 
